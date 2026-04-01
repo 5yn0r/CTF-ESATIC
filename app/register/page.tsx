@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { registerUser } from '@/lib/auth';
 import Link from 'next/link';
 
@@ -9,12 +10,14 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const router = useRouter();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     try {
       await registerUser(email, password, displayName);
+      router.push('/dashboard');
     } catch (err) {
       setError('Impossible de créer le compte. Vérifiez vos informations.');
     }

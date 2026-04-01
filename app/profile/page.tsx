@@ -1,33 +1,55 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserProfile } from '@/hooks/useUserProfile'; // Importer le hook centralisé
 import { Navbar } from '@/components/Navbar';
+import SolvedChallenges from '@/components/SolvedChallenges';
+import Link from 'next/link';
 
+// Ce type est maintenant redondant car géré par le hook, mais on le garde pour la clarté
 type ProfileData = {
   displayName: string;
   email: string;
   score: number;
   solvedCount: number;
   solvedChallenges: string[];
-  role: string;
 };
 
 export default function ProfilePage() {
-  const { user, loading } = useAuth();
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const { user, loading: authLoading } = useAuth();
+  // On remplace le state local par le hook centralisé
+  const { profile, loading: profileLoading } = useUserProfile(user?.uid);
 
-  useEffect(() => {
-    if (!user) return;
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        setProfile(docSnap.data() as ProfileData);
-      }
-    });
-    return () => unsubscribe();
-  }, [user]);
+  // L'état de chargement global dépend de l'authentification ET du chargement du profil
+  const loading = authLoading || profileLoading;
+
+  if (loading) {
+    return (
+      <div>
+        <Navbar />
+        <main className="main-shell flex items-center justify-center py-12">
+          <p>Chargement du profil...</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div>
+        <Navbar />
+        <main className="main-shell py-12">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <h1 className="text-3xl font-semibold text-slate-900">Accès refusé</h1>
+            <p className="mt-4 text-slate-600">Vous devez être connecté pour voir votre profil.</p>
+            <Link href="/login" className="mt-6 inline-block rounded-full bg-brand-500 px-6 py-3 font-semibold text-white hover:bg-brand-700">
+              Se connecter
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -44,7 +66,6 @@ export default function ProfilePage() {
               <div className="mt-6 space-y-3 text-slate-600">
                 <p><span className="font-semibold text-slate-900">Nom :</span> {profile?.displayName ?? '...'}</p>
                 <p><span className="font-semibold text-slate-900">Email :</span> {profile?.email ?? '...'}</p>
-                <p><span className="font-semibold text-slate-900">Rôle :</span> {profile?.role ?? '...'}</p>
               </div>
             </div>
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft">
@@ -56,15 +77,17 @@ export default function ProfilePage() {
                 </div>
                 <div className="rounded-3xl bg-slate-50 p-4">
                   <p className="text-sm text-slate-500">Challenges résolus</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-900">{profile?.solvedCount ?? 0}</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-900">{profile?.solvedChallenges?.length ?? 0}</p>
                 </div>
               </div>
             </div>
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft">
-              <h2 className="text-xl font-semibold text-slate-900">Historique</h2>
-              <p className="mt-4 text-sm leading-7 text-slate-600">
-                Vous avez résolu {profile?.solvedChallenges?.length ?? 0} challenges. Les détails sont consignés dans la collection Firestore sécurisée.
-              </p>
+              <h2 className="text-xl font-semibold text-slate-900">Historique des challenges résolus</h2>
+              {profile?.solvedChallenges && profile.solvedChallenges.length > 0 ? (
+                <SolvedChallenges solvedChallengeIds={profile.solvedChallenges} />
+              ) : (
+                <p className="mt-4 text-sm leading-7 text-slate-600">Vous n'avez encore résolu aucun challenge.</p>
+              )}
             </div>
           </div>
         </div>

@@ -1,19 +1,19 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
-import { useUserProfile } from '@/hooks/useUserProfile';
-import { logoutUser } from '@/lib/auth';
+import { useAuth } from '../hooks/useAuth';
+import { useUserProfile } from '../hooks/useUserProfile';
+import { logoutUser } from '../lib/auth';
 
 const navLinks = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/scoreboard', label: 'Scoreboard' },
+  { href: '/scoreboard', label: 'Classement' },
   { href: '/profile', label: 'Profil' },
 ];
 
 export function Navbar() {
   const { user, loading } = useAuth();
-  const { profile } = useUserProfile();
+  const { profile } = useUserProfile(user?.uid);
 
   return (
     <header className="border-b border-slate-200 bg-white/90 backdrop-blur-md sticky top-0 z-20">
@@ -27,13 +27,13 @@ export function Navbar() {
               {link.label}
             </Link>
           ))}
-          {profile?.role === 'admin' ? (
+          {profile?.role === 'admin' && (
             <Link href="/admin" className="rounded-full bg-slate-100 px-4 py-2 text-slate-700 hover:bg-slate-200">
               Admin
             </Link>
-          ) : null}
+          )}
           {loading ? null : user ? (
-            <button onClick={() => logoutUser()} className="rounded-full bg-slate-100 px-4 py-2 text-slate-700 hover:bg-slate-200">
+            <button onClick={logoutUser} className="rounded-full bg-slate-100 px-4 py-2 text-slate-700 hover:bg-slate-200">
               Déconnexion
             </button>
           ) : (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { loginUser, loginWithGoogle } from '@/lib/auth';
 import Link from 'next/link';
 
@@ -8,14 +9,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const router = useRouter();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     try {
       await loginUser(email, password);
+      router.push('/dashboard');
     } catch (err) {
       setError('Impossible de se connecter. Vérifiez vos identifiants.');
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setError('');
+    try {
+      await loginWithGoogle();
+      router.push('/dashboard');
+    } catch (err) {
+      setError('Impossible de se connecter avec Google.');
     }
   }
 
@@ -39,7 +52,7 @@ export default function LoginPage() {
           <button type="submit" className="w-full rounded-full bg-brand-500 px-4 py-3 text-white hover:bg-brand-700">Se connecter</button>
         </form>
         <div className="border-t border-slate-200 pt-5">
-          <button onClick={loginWithGoogle} className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <button onClick={handleGoogleLogin} className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Connexion avec Google
           </button>
           <p className="mt-4 text-center text-sm text-slate-500">

@@ -1,141 +1,174 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Navbar } from '@/components/Navbar';
+import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import Confetti from 'react-confetti';
+
+type Challenge = {
+  id: string;
+  ctfId: string; // Ajouté pour le bouton de retour
+  title: string;
+  description: string;
+  category: string;
+  points: number;
+  difficulty: string;
+  externalLink?: string;
+};
 
 export default function ChallengePage() {
   const params = useParams();
   const challengeId = params.challengeId as string;
-  const [challenge, setChallenge] = useState<any>(null);
-  const [submission, setSubmission] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [solvedIds, setSolvedIds] = useState<string[]>([]);
   const { user } = useAuth();
+  const { profile: userProfile, loading: profileLoading } = useUserProfile(user?.uid);
+
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [challengeLoading, setChallengeLoading] = useState(true);
+  const [flag, setFlag] = useState('');
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('error');
+  const [showSuccessUI, setShowSuccessUI] = useState(false);
+
+  // Le challenge est considéré comme résolu si l'ID est dans le profil OU si on vient de le réussir
+  const isSolved = userProfile?.solvedChallenges?.includes(challengeId) || showSuccessUI;
 
   useEffect(() => {
     if (!challengeId) return;
-    const challengeRef = doc(db, 'challenges', challengeId);
-    const unsubscribe = onSnapshot(challengeRef, (docSnap) => {
-      if (docSnap.exists()) setChallenge({ id: docSnap.id, ...docSnap.data() });
-    });
-    return () => unsubscribe();
+
+    const fetchChallenge = async () => {
+      const challengeDocRef = doc(db, 'challenges', challengeId);
+      const challengeDocSnap = await getDoc(challengeDocRef);
+
+      if (challengeDocSnap.exists()) {
+        setChallenge({ id: challengeDocSnap.id, ...challengeDocSnap.data() } as Challenge);
+      } else {
+        // Gérer challenge non trouvé
+      }
+      setChallengeLoading(false);
+    };
+
+    fetchChallenge();
   }, [challengeId]);
 
-  useEffect(() => {
-    if (!user) return;
-    const solvedQuery = query(collection(db, 'solves'), where('userId', '==', user.uid));
-    const unsubscribe = onSnapshot(solvedQuery, (snapshot) => {
-      setSolvedIds(snapshot.docs.map((doc) => doc.data().challengeId as string));
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  const isSolved = useMemo(() => solvedIds.includes(challengeId), [challengeId, solvedIds]);
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const handleFlagSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!user) {
-      setMessage('Vous devez être connecté pour soumettre un flag.');
-      return;
+        setMessage('Vous devez être connecté pour soumettre un flag.');
+        setMessageType('error');
+        return;
     }
-    setSubmitting(true);
-    setMessage(null);
+    
+    setMessage('Vérification en cours...');
+    setMessageType('info');
 
     try {
+      const token = await user.getIdToken();
       const response = await fetch('/api/submit-flag', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
+          'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ challengeId, ctfId: challenge?.ctfId, flag: submission }),
+        body: JSON.stringify({ challengeId, flag }),
       });
 
       const data = await response.json();
-      setMessage(data.message || 'Réponse reçue.');
-    } catch (err) {
-      setMessage('Erreur pendant la soumission. Réessayez.');
-    } finally {
-      setSubmitting(false);
-      setSubmission('');
+
+      if (response.ok && data.success) {
+        setMessage(data.message);
+        setMessageType('success');
+        setShowSuccessUI(true); // Déclencher l'UI de succès !
+      } else {
+        setMessage(data.message || data.error || 'Une erreur est survenue.');
+        setMessageType('error');
+      }
+    } catch (error) {
+        console.error('Erreur de communication avec l\'API', error);
+        setMessage('Impossible de contacter le serveur. Veuillez réessayer.');
+        setMessageType('error');
     }
+  };
+  
+  const messageColor = {
+    error: 'text-red-600',
+    success: 'text-green-600',
+    info: 'text-slate-600'
+  }[messageType];
+
+  if (challengeLoading || profileLoading) {
+    return <div><Navbar /><main className="main-shell py-12"><p>Chargement du challenge...</p></main></div>;
+  }
+
+  if (!challenge) {
+    return <div><Navbar /><main className="main-shell py-12"><p>Challenge non trouvé.</p></main></div>;
   }
 
   return (
-    <div>
+    <div className="bg-slate-50 min-h-screen">
+      {isSolved && <Confetti recycle={false} />}
       <Navbar />
       <main className="main-shell py-12">
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="space-y-6">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-soft">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.25em] text-brand-700">Challenge</p>
-                  <h1 className="mt-3 text-3xl font-semibold text-slate-900">{challenge?.title ?? 'Chargement...'}</h1>
-                </div>
-                <span className="rounded-full bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700">{challenge?.category}</span>
-              </div>
-              <div className="mt-6 space-y-4 text-slate-600">
-                <p>{challenge?.description}</p>
-                {challenge?.externalUrl ? (
-                  <p>
-                    Lien externe :{' '}
-                    <a href={challenge.externalUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
-                      Ouvrir l’instance
-                    </a>
-                  </p>
-                ) : null}
-                {challenge?.fileUrl ? (
-                  <p>
-                    Fichier disponible :{' '}
-                    <a href={challenge.fileUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
-                      Télécharger
-                    </a>
-                  </p>
-                ) : null}
-              </div>
-            </div>
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-soft">
-              <h2 className="text-xl font-semibold text-slate-900">Soumettre un flag</h2>
-              <p className="mt-2 text-sm text-slate-600">Le flag doit être envoyé depuis votre compte. Les validations sont sécurisées côté serveur.</p>
-              <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Flag</label>
-                  <input value={submission} required onChange={(e) => setSubmission(e.target.value)} placeholder="flag{...}" className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-brand-500" />
-                </div>
-                {message ? <p className="text-sm text-slate-700">{message}</p> : null}
-                <button type="submit" disabled={submitting} className="inline-flex items-center justify-center rounded-full bg-brand-500 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-                  {isSolved ? 'Challenge déjà résolu' : submitting ? 'Soumission...' : 'Valider le flag'}
-                </button>
-              </form>
-            </div>
-          </section>
-          <aside className="space-y-6">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft">
-              <h2 className="text-xl font-semibold text-slate-900">Détails</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-600">Points : {challenge?.points ?? '...'}</p>
-              <p className="text-sm leading-7 text-slate-600">Statut : {isSolved ? 'Résolu' : 'Non résolu'}</p>
-              <p className="mt-4 text-sm text-slate-500">Les flags sont stockés sous forme de hash côté serveur et ne sont jamais exposés dans l’interface.</p>
-            </div>
-            {challenge?.hints?.length ? (
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft">
-                <h2 className="text-xl font-semibold text-slate-900">Hints</h2>
-                <div className="mt-4 space-y-4 text-slate-600">
-                  {challenge.hints.map((hint: any) => (
-                    <div key={hint.id} className="rounded-3xl bg-slate-50 p-4">
-                      <p className="font-semibold text-slate-900">Indice (-{hint.cost} pts)</p>
-                      <p className="mt-2 text-sm">{hint.text}</p>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-200 p-8">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between">
+                <div className='flex-grow'>
+                    <h1 className="text-3xl font-bold text-slate-900">{challenge.title}</h1>
+                    <div className="mt-2 flex items-center gap-4 text-sm text-slate-600">
+                        <span>{challenge.category}</span>
+                        <span className="font-bold text-brand-600">{challenge.points} pts</span>
+                        <span className="capitalize">Difficulté: {challenge.difficulty}</span>
                     </div>
-                  ))}
                 </div>
-              </div>
-            ) : null}
-          </aside>
+                {challenge.externalLink && (
+                    <a href={challenge.externalLink} target="_blank" rel="noopener noreferrer" className="mt-4 md:mt-0 md:ml-6 flex-shrink-0 rounded-full bg-blue-500 text-white px-5 py-2.5 text-sm font-semibold hover:bg-blue-600 transition-colors">
+                        Lien du challenge
+                    </a>
+                )}
+            </div>
+
+            <div className="prose prose-slate max-w-none mt-8 border-t border-slate-200 pt-6">
+              <ReactMarkdown>{challenge.description}</ReactMarkdown>
+            </div>
+
+            <div className="mt-8 border-t border-slate-200 pt-6">
+              <h2 className="text-xl font-semibold text-slate-800">Soumettre le Flag</h2>
+              {isSolved ? (
+                <div className="mt-4 p-4 rounded-2xl bg-green-100 border border-green-300 text-center">
+                    <p className="font-semibold text-green-800">🎉 Bravo ! Vous avez validé ce challenge.</p>
+                    {challenge.ctfId && (
+                      <Link href={`/ctf/${challenge.ctfId}`} className="inline-block mt-4 bg-brand-500 text-white px-6 py-2 rounded-full font-semibold hover:bg-brand-600 transition-colors no-underline">
+                          Retour aux challenges
+                      </Link>
+                    )}
+                </div>
+              ) : (
+                <form onSubmit={handleFlagSubmit} className="mt-4 flex flex-col sm:flex-row gap-3">
+                  <input 
+                    type="text"
+                    value={flag}
+                    onChange={(e) => setFlag(e.target.value)}
+                    placeholder="CTF{....}"
+                    className="flex-grow rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 focus:ring-brand-500 focus:border-brand-500"
+                    disabled={!user}
+                  />
+                  <button 
+                    type="submit"
+                    className="rounded-full bg-brand-500 text-white px-8 py-3 font-semibold hover:bg-brand-700 transition-colors disabled:bg-slate-400"
+                    disabled={!user || challengeLoading}
+                  >
+                    Valider
+                  </button>
+                </form>
+              )}
+              {message && !isSolved && <p className={`mt-4 text-sm font-medium ${messageColor}`}>{message}</p>}
+            </div>
+          </div>
         </div>
       </main>
     </div>

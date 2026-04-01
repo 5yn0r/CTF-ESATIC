@@ -1,96 +1,68 @@
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
-import crypto from 'crypto';
 
-const MAX_INCORRECT_ATTEMPTS = 8;
-const BRUTE_FORCE_WINDOW_MINUTES = 10;
+const verifyFlag = (submittedFlag: string, correctFlag: string) => {
+    return submittedFlag.trim() === correctFlag.trim();
+};
 
-function hashFlag(flag: string) {
-  return crypto.createHash('sha256').update(flag.trim()).digest('hex');
-}
-
-export async function POST(request: NextRequest) {
-  const authorization = request.headers.get('authorization') || '';
-  const idToken = authorization.replace('Bearer ', '');
-  if (!idToken) {
-    return NextResponse.json({ message: 'Authentification requise.' }, { status: 401 });
-  }
-
-  const body = await request.json();
-  const { challengeId, ctfId, flag } = body;
-
-  if (!challengeId || !ctfId || !flag) {
-    return NextResponse.json({ message: 'Données manquantes.' }, { status: 400 });
-  }
-
-  let decoded;
+export async function POST(req: NextRequest) {
   try {
-    decoded = await adminAuth.verifyIdToken(idToken);
-  } catch (err) {
-    return NextResponse.json({ message: 'Jeton invalide.' }, { status: 401 });
-  }
-
-  const userId = decoded.uid;
-  const challengeRef = adminDb.collection('challenges').doc(challengeId);
-  const challengeSnap = await challengeRef.get();
-
-  if (!challengeSnap.exists) {
-    return NextResponse.json({ message: 'Challenge introuvable.' }, { status: 404 });
-  }
-
-  const challengeData = challengeSnap.data();
-  const recentSubmissions = await adminDb
-    .collection('submissions')
-    .where('userId', '==', userId)
-    .where('status', '==', 'incorrect')
-    .where('createdAt', '>=', new Date(Date.now() - BRUTE_FORCE_WINDOW_MINUTES * 60 * 1000))
-    .get();
-
-  if (recentSubmissions.size >= MAX_INCORRECT_ATTEMPTS) {
-    return NextResponse.json({ message: 'Trop de tentatives. Réessayez dans quelques minutes.' }, { status: 429 });
-  }
-
-  const isCorrect = hashFlag(flag) === challengeData.flagHash;
-  const submissionRef = adminDb.collection('submissions').doc();
-  const createdAt = new Date();
-
-  await submissionRef.set({
-    userId,
-    ctfId,
-    challengeId,
-    text: flag,
-    status: isCorrect ? 'correct' : 'incorrect',
-    createdAt,
-  });
-
-  if (!isCorrect) {
-    return NextResponse.json({ message: 'Flag incorrect. Continuez à chercher !' }, { status: 400 });
-  }
-
-  const userRef = adminDb.collection('users').doc(userId);
-  const solvedRef = adminDb.collection('solves').doc(`${userId}_${challengeId}`);
-
-  await adminDb.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
-    const solvedSnap = await transaction.get(solvedRef);
-    if (solvedSnap.exists) {
-      return;
+    const token = req.headers.get('Authorization')?.split('Bearer ')[1];
+    if (!token) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const currentScore = userSnap.exists ? userSnap.data()?.score ?? 0 : 0;
-    const currentSolvedCount = userSnap.exists ? userSnap.data()?.solvedCount ?? 0 : 0;
+    const decodedToken = await getAdminAuth().verifyIdToken(token);
+    const userId = decodedToken.uid;
 
-    transaction.set(solvedRef, {
-      userId,
-      challengeId,
-      ctfId,
-      solvedAt: createdAt,
-    });
-    transaction.update(userRef, {
-      score: currentScore + (challengeData.points ?? 0),
-      solvedCount: currentSolvedCount + 1,
-    });
-  });
+    const { challengeId, flag } = await req.json();
 
-  return NextResponse.json({ message: 'Flag correct ! Points attribués.' });
+    if (!challengeId || !flag) {
+      return NextResponse.json({ error: 'Challenge ID et flag sont requis' }, { status: 400 });
+    }
+
+    const userRef = getAdminDb().collection('users').doc(userId);
+
+    const result = await getAdminDb().runTransaction(async (transaction) => {
+      const challengeRef = getAdminDb().collection('challenges').doc(challengeId);
+      const challengeDoc = await transaction.get(challengeRef);
+      const userDoc = await transaction.get(userRef);
+
+      if (!challengeDoc.exists) { throw new Error('Challenge non trouvé'); }
+      if (!userDoc.exists) { throw new Error('Utilisateur non trouvé'); }
+
+      const challengeData = challengeDoc.data()!;
+      const userData = userDoc.data()!;
+
+      // Logique renforcée : on ne s'attend qu'à des strings dans le tableau.
+      const solvedChallenges = userData.solvedChallenges || [];
+      if (solvedChallenges.includes(challengeId)) {
+        return { success: false, message: 'Challenge déjà résolu !' };
+      }
+
+      if (verifyFlag(flag, challengeData.flag)) {
+        const newScore = (userData.score || 0) + challengeData.points;
+        transaction.update(userRef, {
+          score: newScore,
+          solvedChallenges: FieldValue.arrayUnion(challengeId),
+        });
+        return { success: true, message: 'Félicitations ! Flag correct.', points: challengeData.points };
+      } else {
+        return { success: false, message: 'Flag incorrect. Essayez encore !' };
+      }
+    });
+
+    return NextResponse.json(result);
+
+  } catch (error: any) {
+    // Log amélioré pour un meilleur débogage côté serveur
+    console.error(`[API SUBMIT-FLAG ERROR] User: ${req.headers.get('Authorization')?.substring(0, 15)}... | Challenge: ${req.body ? JSON.parse(JSON.stringify(req.body)).challengeId : 'N/A'} | Error: ${error.message}`)
+
+    if (error.message.includes('non trouvé')) {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    // Le message d'erreur est maintenant plus générique, mais le log serveur est plus précis.
+    return NextResponse.json({ error: 'Une erreur inattendue est survenue sur le serveur.' }, { status: 500 });
+  }
 }
