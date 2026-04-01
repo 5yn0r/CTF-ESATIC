@@ -1,36 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Un utilisateur ne peut PAS changer son score ou son rôle.
-    // Seul le serveur avec les droits admin (via l'API submit-flag) peut le faire.
     match /users/{userId} {
-      // Tout utilisateur authentifié peut lire les profils (pour le scoreboard)
-      allow read: if request.auth != null;
-      
-      // Un utilisateur peut créer son propre profil, mais PAS en se donnant un rôle ou un score.
-      allow create: if request.auth != null 
-                    && request.auth.uid == userId
-                    && !('role' in request.resource.data)
-                    && !('score' in request.resource.data);
-
-      // Un utilisateur peut mettre à jour son profil, MAIS PAS son rôle ou son score.
-      allow update: if request.auth != null 
-                    && request.auth.uid == userId
-                    && request.resource.data.role == resource.data.role
-                    && request.resource.data.score == resource.data.score;
-      
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
       allow delete: if false;
     }
 
-    // Seuls les utilisateurs connectés peuvent voir les CTFs et les Challenges
     match /ctfs/{ctfId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
     match /challenges/{challengeId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
@@ -46,7 +30,6 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // La fonction isAdmin est correcte : elle vérifie si l'utilisateur a le rôle 'admin' dans son document.
     function isAdmin() {
       return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
