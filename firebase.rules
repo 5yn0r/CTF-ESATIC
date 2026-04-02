@@ -1,13 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow update: if request.auth != null && request.auth.uid == userId;
+      // La lecture est publique pour permettre l'affichage du classement (scoreboard) 
+      // et le rendu côté serveur (SSR).
+      allow read: if true;
+      
+      // Les règles d'écriture restent sécurisées : un utilisateur ne peut PAS changer son score ou son rôle.
+      allow create: if request.auth != null 
+                    && request.auth.uid == userId
+                    && !('role' in request.resource.data)
+                    && !('score' in request.resource.data);
+
+      allow update: if request.auth != null 
+                    && request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.score == resource.data.score;
+      
       allow delete: if false;
     }
 
+    // La lecture des CTFs et Challenges est publique pour que le rendu côté serveur fonctionne.
     match /ctfs/{ctfId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
