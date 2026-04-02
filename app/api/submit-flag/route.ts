@@ -8,6 +8,9 @@ const verifyFlag = (submittedFlag: string, correctFlag: string) => {
 };
 
 export async function POST(req: NextRequest) {
+  // Déclarer challengeId ici pour qu'il soit accessible dans le bloc catch
+  let challengeId: string | null = null;
+
   try {
     const token = req.headers.get('Authorization')?.split('Bearer ')[1];
     if (!token) {
@@ -17,7 +20,10 @@ export async function POST(req: NextRequest) {
     const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
-    const { challengeId, flag } = await req.json();
+    // Lire le corps une seule fois
+    const body = await req.json();
+    challengeId = body.challengeId; // Assigner la valeur
+    const flag = body.flag;
 
     if (!challengeId || !flag) {
       return NextResponse.json({ error: 'Challenge ID et flag sont requis' }, { status: 400 });
@@ -26,7 +32,7 @@ export async function POST(req: NextRequest) {
     const userRef = adminDb.collection('users').doc(userId);
 
     const result = await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const challengeRef = adminDb.collection('challenges').doc(challengeId);
+      const challengeRef = adminDb.collection('challenges').doc(challengeId!);
       const challengeDoc = await transaction.get(challengeRef);
       const userDoc = await transaction.get(userRef);
 
@@ -37,7 +43,7 @@ export async function POST(req: NextRequest) {
       const userData = userDoc.data()!;
 
       const solvedChallenges = userData.solvedChallenges || [];
-      if (solvedChallenges.includes(challengeId)) {
+      if (solvedChallenges.includes(challengeId!)) {
         return { success: false, message: 'Challenge déjà résolu !' };
       }
 
@@ -45,7 +51,7 @@ export async function POST(req: NextRequest) {
         const newScore = (userData.score || 0) + challengeData.points;
         transaction.update(userRef, {
           score: newScore,
-          solvedChallenges: FieldValue.arrayUnion(challengeId),
+          solvedChallenges: FieldValue.arrayUnion(challengeId!),
         });
         return { success: true, message: 'Félicitations ! Flag correct.', points: challengeData.points };
       } else {
@@ -56,7 +62,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
 
   } catch (error: any) {
-    console.error(`[API SUBMIT-FLAG ERROR] User: ${req.headers.get('Authorization')?.substring(0, 15)}... | Challenge: ${req.body ? JSON.parse(JSON.stringify(req.body)).challengeId : 'N/A'} | Error: ${error.message}`)
+    // Utiliser la variable challengeId qui est maintenant accessible ici
+    console.error(`[API SUBMIT-FLAG ERROR] User: ${req.headers.get('Authorization')?.substring(0, 15)}... | Challenge: ${challengeId || 'N/A'} | Error: ${error.message}`)
 
     if (error.message.includes('non trouvé')) {
         return NextResponse.json({ error: error.message }, { status: 404 });
