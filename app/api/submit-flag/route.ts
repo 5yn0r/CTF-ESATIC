@@ -1,4 +1,5 @@
-import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminDb, getAdminAuth } from '@/lib/firebaseAdmin';
+import admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const userRef = getAdminDb().collection('users').doc(userId);
 
-    const result = await getAdminDb().runTransaction(async (transaction) => {
+    const result = await getAdminDb().runTransaction(async (transaction: admin.firestore.Transaction) => {
       const challengeRef = getAdminDb().collection('challenges').doc(challengeId);
       const challengeDoc = await transaction.get(challengeRef);
       const userDoc = await transaction.get(userRef);
@@ -35,7 +36,6 @@ export async function POST(req: NextRequest) {
       const challengeData = challengeDoc.data()!;
       const userData = userDoc.data()!;
 
-      // Logique renforcée : on ne s'attend qu'à des strings dans le tableau.
       const solvedChallenges = userData.solvedChallenges || [];
       if (solvedChallenges.includes(challengeId)) {
         return { success: false, message: 'Challenge déjà résolu !' };
@@ -56,13 +56,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
 
   } catch (error: any) {
-    // Log amélioré pour un meilleur débogage côté serveur
     console.error(`[API SUBMIT-FLAG ERROR] User: ${req.headers.get('Authorization')?.substring(0, 15)}... | Challenge: ${req.body ? JSON.parse(JSON.stringify(req.body)).challengeId : 'N/A'} | Error: ${error.message}`)
 
     if (error.message.includes('non trouvé')) {
         return NextResponse.json({ error: error.message }, { status: 404 });
     }
-    // Le message d'erreur est maintenant plus générique, mais le log serveur est plus précis.
     return NextResponse.json({ error: 'Une erreur inattendue est survenue sur le serveur.' }, { status: 500 });
   }
 }
