@@ -1,4 +1,4 @@
-import { getAdminDb, getAdminAuth } from '@/lib/firebaseAdmin';
+import { adminDb, adminAuth } from '@/lib/firebaseAdmin';
 import admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const decodedToken = await getAdminAuth().verifyIdToken(token);
+    const decodedToken = await adminAuth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
     const { challengeId, flag } = await req.json();
@@ -23,10 +23,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Challenge ID et flag sont requis' }, { status: 400 });
     }
 
-    const userRef = getAdminDb().collection('users').doc(userId);
+    const userRef = adminDb.collection('users').doc(userId);
 
-    const result = await getAdminDb().runTransaction(async (transaction: admin.firestore.Transaction) => {
-      const challengeRef = getAdminDb().collection('challenges').doc(challengeId);
+    const result = await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
+      const challengeRef = adminDb.collection('challenges').doc(challengeId);
       const challengeDoc = await transaction.get(challengeRef);
       const userDoc = await transaction.get(userRef);
 
